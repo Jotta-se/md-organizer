@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Project specifics
+_relatorio.md
+
+# Ignorar todos os arquivos Markdown (ex: testes soltos)
+*.md
+
+# Exceções (Deixar o Git rastrear estes Markdowns importantes)
+!README.md
+!CONTRIBUTING.md
+!task.md
