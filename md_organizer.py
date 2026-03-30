@@ -42,6 +42,7 @@ SOURCE_DRIVE   = Path(r"X:\\")
 DEST_BASE      = Path(r"C:\Users\Jotta\Documents\Acervos\Acervo Markdown")
 REPORT_FILE    = DEST_BASE / "_relatorio.md"
 MODEL          = "qwen3:14b"
+TARGET_EXTENSIONS = [".md"]
 
 MIN_FILE_BYTES         = 10
 MIN_WORDS_CLASSIFY     = 100
@@ -189,7 +190,7 @@ def print_summary(label: str, data: dict):
 # ETAPA 1 — INVENTÁRIO
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def etapa1_inventario(source: Path) -> list[dict]:
+def etapa1_inventario(source: Path, extensions: list[str]) -> list[dict]:
     print_section("ETAPA 1 — INVENTÁRIO")
     print(f"  Percorrendo recursivamente: {source}")
     print(f"  Aguarde...\n")
@@ -199,7 +200,8 @@ def etapa1_inventario(source: Path) -> list[dict]:
 
     for root, dirs, filenames in os.walk(source, onerror=lambda e: None):
         for fn in filenames:
-            if not fn.lower().endswith('.md'):
+            ext = Path(fn).suffix.lower()
+            if "todos" not in extensions and ext not in extensions:
                 continue
             fp = Path(root) / fn
             try:
@@ -212,7 +214,7 @@ def etapa1_inventario(source: Path) -> list[dict]:
     ignored = len(all_files) - len(valid)
 
     print_summary("Etapa 1 concluída", {
-        "Arquivos .md encontrados:":     len(all_files),
+        "Arquivos válidos encontrados:": len(all_files),
         f"Ignorados (< {MIN_FILE_BYTES} bytes):": ignored,
         "Inacessíveis (sem permissão):": inaccessible,
         "Válidos para processamento:":   len(valid),
@@ -225,7 +227,7 @@ def etapa1_inventario(source: Path) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 CLASSIFICATION_PROMPT = """\
-Você é um classificador semântico de documentos técnicos. Analise o arquivo Markdown abaixo e retorne APENAS um objeto JSON — sem texto extra, sem blocos de código, sem explicações.
+Você é um classificador semântico de documentos técnicos. Analise o conteúdo textual abaixo e retorne APENAS um objeto JSON — sem texto extra, sem blocos de código, sem explicações.
 
 Arquivo: {filename}
 
@@ -302,11 +304,18 @@ def etapa2_analise(files: list[dict]) -> list[dict]:
 
         # ── Leitura ──────────────────────────────────────────────
         try:
-            content = fp.read_text(encoding="utf-8", errors="ignore")
+            ext = fp.suffix.lower()
+            if ext in [".txt", ".md", ".csv", ".json"]:
+                content = fp.read_text(encoding="utf-8", errors="ignore")
+            else:
+                from markitdown import MarkItDown
+                md_converter = MarkItDown()
+                result = md_converter.convert(str(fp))
+                content = result.text_content
         except Exception as exc:
             fi.update({"categoria": PENDING_CATEGORY, "subcategoria": None,
-                        "justificativa": f"Erro de leitura: {exc}"})
-            print(f"  [{idx:>5}/{total}] ERRO lendo: {name}")
+                        "justificativa": f"Erro na extração de texto: {exc}"})
+            print(f"  [{idx:>5}/{total}] ERRO extraindo texto de: {name}")
             results.append(fi)
             errors += 1
             continue
@@ -521,9 +530,26 @@ def main():
     print("║{:^60}║".format("MD ORGANIZER  —  Configuração"))
     print("╚" + "═"*60 + "╝\n")
 
-    global SOURCE_DRIVE, DEST_BASE, REPORT_FILE, MODEL
+    global SOURCE_DRIVE, DEST_BASE, REPORT_FILE, MODEL, TARGET_EXTENSIONS
 
-    # 1. Origem
+    # 1. Extensões
+    while True:
+        ext_input = input("  [?] Quais formatos de arquivo? (ex: pdf, docx, txt, ou 'todos'): ").strip().lower()
+        if not ext_input:
+            print("      ⚠ Informe ao menos uma extensão ou digite 'todos'.")
+            continue
+        
+        if ext_input == "todos":
+            TARGET_EXTENSIONS = ["todos"]
+        else:
+            parts = [p.strip() for p in ext_input.replace('.', '').split(",")]
+            TARGET_EXTENSIONS = [f".{p}" for p in parts if p]
+            if not TARGET_EXTENSIONS:
+                print("      ⚠ Formato de entrada inválido.")
+                continue
+        break
+
+    # 2. Origem
     while True:
         src_input = input("  [?] Diretório de Origem: ").strip()
         if not src_input:
@@ -610,19 +636,20 @@ def main():
 
     print("\n" + "─"*62)
     print("  Iniciando com as seguintes configurações:")
-    print(f"  Origem  : {SOURCE_DRIVE}")
-    print(f"  Destino : {DEST_BASE}")
-    print(f"  Modelo  : {MODEL}")
+    print(f"  Extensões : {', '.join(TARGET_EXTENSIONS)}")
+    print(f"  Origem    : {SOURCE_DRIVE}")
+    print(f"  Destino   : {DEST_BASE}")
+    print(f"  Modelo    : {MODEL}")
     if args.dry_run:
         print("  Modo    : DRY-RUN (nenhum arquivo será copiado)")
     if args.limit:
         print(f"  Limite  : {args.limit} arquivos")
 
     # ── Pipeline ──────────────────────────────────────────────────────────────
-    files = etapa1_inventario(SOURCE_DRIVE)
+    files = etapa1_inventario(SOURCE_DRIVE, TARGET_EXTENSIONS)
 
     if not files:
-        print("\n  Nenhum arquivo .md válido encontrado. Encerrando.")
+        print("\n  Nenhum arquivo válido encontrado na origem informada. Encerrando.")
         sys.exit(0)
 
     if args.limit and args.limit < len(files):
